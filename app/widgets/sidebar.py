@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QTreeWidget, QTreeWidgetItem
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QTreeWidget, QTreeWidgetItem, QHeaderView
 from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QColor, QFont
 
@@ -35,6 +35,8 @@ class CategorySidebar(QWidget):
         self.tree.setAnimated(True)
         self.tree.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.tree.header().setStretchLastSection(False)
+        self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.tree.setStyleSheet("""
             QTreeWidget {
                 background: transparent;
@@ -148,9 +150,7 @@ class CategorySidebar(QWidget):
                 p_item.addChild(s_item)
 
             self.tree.addTopLevelItem(p_item)
-            # Auto-expand if it has visible subcategory children
-            if p_item.childCount() > 0:
-                p_item.setExpanded(True)
+            # Collapsed by default — user clicks to expand
 
         self.tree.blockSignals(False)
 
