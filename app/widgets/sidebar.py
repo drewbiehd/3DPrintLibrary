@@ -34,7 +34,8 @@ class CategorySidebar(QWidget):
         self.tree.setIndentation(16)
         self.tree.setAnimated(True)
         self.tree.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.tree.setTextElideMode(Qt.ElideNone)
         self.tree.header().setStretchLastSection(False)
         self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.tree.setStyleSheet("""
@@ -81,6 +82,15 @@ class CategorySidebar(QWidget):
             QScrollBar::handle:vertical:hover { background: #66c0f4; }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
             QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
+            QScrollBar:horizontal {
+                background: transparent; height: 5px; margin: 0;
+            }
+            QScrollBar::handle:horizontal {
+                background: #3a5a7a; border-radius: 2px; min-width: 24px;
+            }
+            QScrollBar::handle:horizontal:hover { background: #66c0f4; }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: transparent; }
         """)
         self.tree.itemClicked.connect(self._on_item_clicked)
         layout.addWidget(self.tree)
