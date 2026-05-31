@@ -62,8 +62,13 @@ class CategorySidebar(QWidget):
             }
             QTreeWidget::branch:has-children:!has-siblings:closed,
             QTreeWidget::branch:closed:has-children:has-siblings {
-                image: none;
-                border-image: none;
+                padding-left: 4px;
+                color: #546a7b;
+            }
+            QTreeWidget::branch:open:has-children:!has-siblings,
+            QTreeWidget::branch:open:has-children:has-siblings {
+                padding-left: 4px;
+                color: #546a7b;
             }
             QScrollBar:vertical {
                 background: transparent; width: 5px; margin: 0;
@@ -121,8 +126,10 @@ class CategorySidebar(QWidget):
 
         tree_data = db.get_category_tree()
         for cat in tree_data:
+            has_subs = any(s["count"] > 0 for s in cat["subcategories"])
+            prefix = "▾ " if has_subs else "  "
             p_item = self._make_item(
-                label=f"  {cat['icon']}  {cat['name']}",
+                label=f"  {prefix}{cat['icon']}  {cat['name']}",
                 data=(cat["name"], ""),
                 color=cat["color"],
                 count=cat["count"],
@@ -141,8 +148,9 @@ class CategorySidebar(QWidget):
                 p_item.addChild(s_item)
 
             self.tree.addTopLevelItem(p_item)
-            if cat["count"] > 0:
-                p_item.setExpanded(False)   # collapsed by default; user opens
+            # Auto-expand if it has visible subcategory children
+            if p_item.childCount() > 0:
+                p_item.setExpanded(True)
 
         self.tree.blockSignals(False)
 
