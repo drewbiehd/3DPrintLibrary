@@ -167,8 +167,18 @@ class MainWindow(QMainWindow):
         layout.setSpacing(0)
 
         splitter = QSplitter(Qt.Horizontal)
+        splitter.setHandleWidth(5)
         splitter.setStyleSheet("""
-            QSplitter::handle { background: #2a3f5a; width: 1px; }
+            QSplitter::handle:horizontal {
+                background: #2a3f5a;
+                border-left:  1px solid #1a2535;
+                border-right: 1px solid #1a2535;
+                width: 5px;
+            }
+            QSplitter::handle:horizontal:hover,
+            QSplitter::handle:horizontal:pressed {
+                background: #66c0f4;
+            }
         """)
 
         self.sidebar = CategorySidebar()

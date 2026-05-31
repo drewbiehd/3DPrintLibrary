@@ -11,8 +11,8 @@ class CategorySidebar(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setMinimumWidth(170)
-        self.setMaximumWidth(240)
+        self.setMinimumWidth(160)
+        # No maximum — user can drag the splitter as wide as they need
         self.setStyleSheet("background: #171d25;")
 
         layout = QVBoxLayout(self)
