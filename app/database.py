@@ -119,6 +119,9 @@ def init_db():
         if "subcategory" not in cols:
             conn.execute("ALTER TABLE files ADD COLUMN subcategory TEXT DEFAULT ''")
 
+    _cleanup_duplicate_categories()   # must run BEFORE creating the unique index
+
+    with get_connection() as conn:
         # SQLite treats NULL != NULL in UNIQUE constraints, so
         # UNIQUE(name, parent_id) silently allows duplicate top-level rows.
         # This partial index uses COALESCE to treat NULL as -1, fixing that.
@@ -126,8 +129,6 @@ def init_db():
             CREATE UNIQUE INDEX IF NOT EXISTS uniq_category
             ON categories(name, COALESCE(parent_id, -1))
         """)
-
-    _cleanup_duplicate_categories()   # fix any dupes already in the DB
     _init_builtin_categories()
     _migrate_legacy_categories()
 
