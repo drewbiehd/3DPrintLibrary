@@ -119,28 +119,78 @@ def init_db():
         if "subcategory" not in cols:
             conn.execute("ALTER TABLE files ADD COLUMN subcategory TEXT DEFAULT ''")
 
+        # SQLite treats NULL != NULL in UNIQUE constraints, so
+        # UNIQUE(name, parent_id) silently allows duplicate top-level rows.
+        # This partial index uses COALESCE to treat NULL as -1, fixing that.
+        conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uniq_category
+            ON categories(name, COALESCE(parent_id, -1))
+        """)
+
+    _cleanup_duplicate_categories()   # fix any dupes already in the DB
     _init_builtin_categories()
     _migrate_legacy_categories()
 
 
-def _init_builtin_categories():
-    """Populate the categories table with built-ins (idempotent)."""
+def _cleanup_duplicate_categories():
+    """
+    Remove duplicate category rows introduced by the NULL unique-constraint bug.
+    Keeps the lowest-id row for each (name, parent) pair.
+    Safe to run on a clean DB — deletes nothing if no dupes exist.
+    """
     with get_connection() as conn:
-        # Build a name→id map for parents already inserted
-        def _id(name):
+        conn.execute("""
+            DELETE FROM categories
+            WHERE id NOT IN (
+                SELECT MIN(id)
+                FROM categories
+                GROUP BY name, COALESCE(parent_id, -1)
+            )
+        """)
+
+
+def _init_builtin_categories():
+    """
+    Populate the categories table with built-ins (truly idempotent).
+
+    We do an explicit existence check instead of relying on INSERT OR IGNORE
+    because SQLite's UNIQUE constraint treats NULL != NULL, meaning two rows
+    with the same name and parent_id=NULL are not considered duplicates by
+    INSERT OR IGNORE — they'd both be inserted.
+    """
+    with get_connection() as conn:
+
+        def _id(name: str) -> int | None:
+            """Return the id of a top-level category by name."""
             row = conn.execute(
-                "SELECT id FROM categories WHERE name=? AND parent_id IS NULL", (name,)
+                "SELECT id FROM categories WHERE name=? AND parent_id IS NULL",
+                (name,),
             ).fetchone()
             return row["id"] if row else None
+
+        def _exists(name: str, parent_id: int | None) -> bool:
+            if parent_id is None:
+                row = conn.execute(
+                    "SELECT 1 FROM categories WHERE name=? AND parent_id IS NULL",
+                    (name,),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT 1 FROM categories WHERE name=? AND parent_id=?",
+                    (name, parent_id),
+                ).fetchone()
+            return row is not None
 
         sort = 0
         for name, parent_name, icon, color in BUILTIN_CATEGORIES:
             parent_id = _id(parent_name) if parent_name else None
-            conn.execute(
-                """INSERT OR IGNORE INTO categories (name, parent_id, icon, color, sort_order, is_builtin)
-                   VALUES (?, ?, ?, ?, ?, 1)""",
-                (name, parent_id, icon, color, sort),
-            )
+            if not _exists(name, parent_id):
+                conn.execute(
+                    """INSERT INTO categories
+                           (name, parent_id, icon, color, sort_order, is_builtin)
+                       VALUES (?, ?, ?, ?, ?, 1)""",
+                    (name, parent_id, icon, color, sort),
+                )
             sort += 1
 
 
