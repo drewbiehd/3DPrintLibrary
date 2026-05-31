@@ -3,9 +3,11 @@ from PySide6.QtWidgets import (
     QDialog, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QListWidget, QListWidgetItem, QFileDialog,
     QCheckBox, QLineEdit, QFormLayout, QMessageBox, QGroupBox,
-    QDialogButtonBox, QInputDialog
+    QDialogButtonBox, QInputDialog, QTreeWidget, QTreeWidgetItem,
+    QColorDialog, QFrame
 )
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 
 import app.database as db
 from app.slicer import detect_slicers
@@ -60,8 +62,9 @@ class SettingsDialog(QDialog):
         layout.setContentsMargins(0, 0, 0, 12)
 
         tabs = QTabWidget()
-        tabs.addTab(self._build_folders_tab(), "📁  Folders")
-        tabs.addTab(self._build_slicers_tab(), "▶  Slicers")
+        tabs.addTab(self._build_folders_tab(),    "📁  Folders")
+        tabs.addTab(self._build_slicers_tab(),    "▶  Slicers")
+        tabs.addTab(self._build_categories_tab(), "🏷  Categories")
         tabs.addTab(self._build_thumbnails_tab(), "🖼  Thumbnails")
         layout.addWidget(tabs)
 
@@ -331,6 +334,208 @@ class SettingsDialog(QDialog):
                 with db.get_connection() as conn:
                     conn.execute("UPDATE files SET thumbnail_path = NULL")
                 QMessageBox.information(self, "Done", "Thumbnail cache cleared.")
+
+    # ── Categories tab ───────────────────────────────────────────────────────
+
+    def _build_categories_tab(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+
+        layout.addWidget(QLabel(
+            "Customize categories and sub-categories. "
+            "Built-in ones can be renamed and styled but not deleted."
+        ))
+
+        self.cat_tree = QTreeWidget()
+        self.cat_tree.setHeaderLabels(["Category", "Files"])
+        self.cat_tree.setColumnWidth(0, 280)
+        self.cat_tree.setAlternatingRowColors(False)
+        self.cat_tree.setStyleSheet("""
+            QTreeWidget {
+                background: #171d25; color: #c6d4df;
+                border: 1px solid #2a3f5a; border-radius: 4px; outline: none;
+            }
+            QTreeWidget::item { padding: 4px 4px; }
+            QTreeWidget::item:selected { background: #2a475e; }
+            QHeaderView::section {
+                background: #1e2d3d; color: #8f98a0;
+                border: none; border-bottom: 1px solid #2a3f5a; padding: 4px 8px;
+            }
+            QScrollBar:vertical { background:transparent; width:5px; }
+            QScrollBar::handle:vertical { background:#3a5a7a; border-radius:2px; min-height:20px; }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0; }
+        """)
+        self._reload_cat_tree()
+        layout.addWidget(self.cat_tree)
+
+        btns = QHBoxLayout()
+        for label, slot in [
+            ("+ Add Category",    self._cat_add_parent),
+            ("+ Add Sub-Category", self._cat_add_child),
+            ("✏ Rename",          self._cat_rename),
+            ("🎨 Style",           self._cat_style),
+            ("🗑 Delete",          self._cat_delete),
+        ]:
+            btn = QPushButton(label)
+            btn.clicked.connect(slot)
+            btns.addWidget(btn)
+        btns.addStretch()
+        layout.addLayout(btns)
+
+        note = QLabel(
+            "Changes take effect immediately. "
+            "Deleting a category moves its files to 'Uncategorized'. "
+            "Deleting a sub-category moves its files up to the parent."
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet("color: #8f98a0; font-size: 11px;")
+        layout.addWidget(note)
+        return w
+
+    def _reload_cat_tree(self):
+        self.cat_tree.clear()
+        for node in db.get_category_tree():
+            p = QTreeWidgetItem([
+                f"  {node['icon']}  {node['name']}",
+                str(node["count"]),
+            ])
+            p.setData(0, Qt.UserRole, {"id": node["id"], "name": node["name"],
+                                        "is_builtin": node["is_builtin"],
+                                        "icon": node["icon"], "color": node["color"],
+                                        "parent": None})
+            p.setForeground(0, QColor(node["color"]))
+            self.cat_tree.addTopLevelItem(p)
+            for child in node["subcategories"]:
+                c = QTreeWidgetItem([
+                    f"    {child['icon']}  {child['name']}",
+                    str(child["count"]),
+                ])
+                c.setData(0, Qt.UserRole, {"id": child["id"], "name": child["name"],
+                                            "is_builtin": child["is_builtin"],
+                                            "icon": child["icon"], "color": child["color"],
+                                            "parent": node["name"]})
+                c.setForeground(0, QColor(child["color"]))
+                p.addChild(c)
+            p.setExpanded(True)
+
+    def _selected_cat_data(self) -> dict | None:
+        item = self.cat_tree.currentItem()
+        return item.data(0, Qt.UserRole) if item else None
+
+    def _cat_add_parent(self):
+        name, ok = QInputDialog.getText(self, "Add Category", "Category name:")
+        if not ok or not name.strip():
+            return
+        db.add_category(name.strip(), parent_id=None)
+        self._reload_cat_tree()
+
+    def _cat_add_child(self):
+        item = self.cat_tree.currentItem()
+        if not item:
+            QMessageBox.information(self, "Add Sub-Category",
+                                    "Select a parent category first.")
+            return
+        data = item.data(0, Qt.UserRole)
+        # If a sub-category is selected, use its parent
+        if data["parent"]:
+            QMessageBox.information(self, "Add Sub-Category",
+                                    "Select the parent category, not a sub-category.")
+            return
+        name, ok = QInputDialog.getText(self, "Add Sub-Category",
+                                         f"Sub-category name under '{data['name']}':")
+        if not ok or not name.strip():
+            return
+        db.add_category(name.strip(), parent_id=data["id"])
+        self._reload_cat_tree()
+
+    def _cat_rename(self):
+        data = self._selected_cat_data()
+        if not data:
+            return
+        new_name, ok = QInputDialog.getText(self, "Rename",
+                                              f"New name for '{data['name']}':",
+                                              text=data["name"])
+        if not ok or not new_name.strip() or new_name.strip() == data["name"]:
+            return
+        db.rename_category(data["id"], new_name.strip())
+        self._reload_cat_tree()
+
+    def _cat_style(self):
+        data = self._selected_cat_data()
+        if not data:
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Style — {data['name']}")
+        dlg.setStyleSheet(DIALOG_STYLE)
+        dlg.setFixedSize(320, 200)
+        vl = QVBoxLayout(dlg)
+        vl.setContentsMargins(16, 16, 16, 16)
+        vl.setSpacing(10)
+
+        # Icon
+        icon_row = QHBoxLayout()
+        icon_row.addWidget(QLabel("Icon (emoji):"))
+        icon_edit = QLineEdit(data["icon"])
+        icon_edit.setMaxLength(8)
+        icon_edit.setFixedWidth(60)
+        icon_row.addWidget(icon_edit)
+        icon_row.addStretch()
+        vl.addLayout(icon_row)
+
+        # Color
+        color_row = QHBoxLayout()
+        color_row.addWidget(QLabel("Color:"))
+        self._style_color = data["color"]
+        color_btn = QPushButton()
+        color_btn.setFixedSize(48, 24)
+        color_btn.setStyleSheet(f"background:{data['color']}; border-radius:4px; border:none;")
+
+        def _pick_color():
+            c = QColorDialog.getColor(QColor(self._style_color), dlg, "Pick Color")
+            if c.isValid():
+                self._style_color = c.name()
+                color_btn.setStyleSheet(
+                    f"background:{self._style_color}; border-radius:4px; border:none;"
+                )
+        color_btn.clicked.connect(_pick_color)
+        color_row.addWidget(color_btn)
+        color_row.addStretch()
+        vl.addLayout(color_row)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+        vl.addWidget(btns)
+
+        if dlg.exec():
+            db.update_category_style(data["id"], icon_edit.text().strip() or data["icon"],
+                                      self._style_color)
+            self._reload_cat_tree()
+
+    def _cat_delete(self):
+        data = self._selected_cat_data()
+        if not data:
+            return
+        if data["is_builtin"]:
+            QMessageBox.warning(self, "Cannot Delete",
+                f"'{data['name']}' is a built-in category and cannot be deleted.\n"
+                "You can rename it or add sub-categories instead.")
+            return
+        parent_str = f" (sub-category of {data['parent']})" if data["parent"] else ""
+        reply = QMessageBox.question(
+            self, "Delete Category",
+            f"Delete '{data['name']}'{parent_str}?\n\n"
+            + ("Files will be moved to 'Uncategorized'."
+               if not data["parent"]
+               else f"Files will move up to '{data['parent']}'."),
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            db.delete_category(data["id"])
+            self._reload_cat_tree()
 
     def accept(self):
         db.set_setting("enable_search", "1" if self.search_cb.isChecked() else "0")

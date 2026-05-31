@@ -60,13 +60,13 @@ class ScanWorker(QThread):
             for path, filename, fmt, size in scan_folder(folder):
                 if not self._running:
                     break
-                category = detect_category(filename)
+                category, subcategory = detect_category(filename)
                 thumb = get_or_create_thumbnail(
                     path, fmt,
                     enable_3d_render=self.enable_3d,
                     enable_search=self.enable_search,
                 )
-                db.upsert_file(path, filename, fmt, size, category, thumb)
+                db.upsert_file(path, filename, fmt, size, category, subcategory, thumb)
                 count += 1
                 if count % 10 == 0:
                     self.progress.emit(f"Scanning … {count} files processed")
@@ -172,7 +172,7 @@ class MainWindow(QMainWindow):
         """)
 
         self.sidebar = CategorySidebar()
-        self.sidebar.category_selected.connect(lambda _: self._load_library())
+        self.sidebar.category_selected.connect(lambda _cat, _sub: self._load_library())
         splitter.addWidget(self.sidebar)
 
         self.grid = LibraryGrid()
@@ -210,15 +210,16 @@ class MainWindow(QMainWindow):
     # ── Library loading ───────────────────────────────────────────────────────
 
     def _load_library(self):
-        category = self.sidebar.current_category()
+        cat, sub = self.sidebar.current_selection()
         search = self.search_box.text().strip() or None
-        files = db.get_all_files(category=category, search=search)
-
-        sort_idx = self.sort_combo.currentIndex()
-        files = self._sort_files(files, sort_idx)
-
+        files = db.get_all_files(
+            category=cat if cat != "All" else None,
+            subcategory=sub if sub else None,
+            search=search,
+        )
+        files = self._sort_files(files, self.sort_combo.currentIndex())
         self.grid.load_files(files)
-        self.sidebar.update_categories(db.get_categories(), len(db.get_all_files()))
+        self.sidebar.update_tree()
 
         total = len(db.get_all_files())
         self.file_count_label.setText(f"{len(files)} shown  /  {total} total")

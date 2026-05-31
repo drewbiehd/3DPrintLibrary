@@ -1,52 +1,18 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QListWidget, QListWidgetItem
-from PySide6.QtCore import Signal, Qt, QSize
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QTreeWidget, QTreeWidgetItem
+from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QColor, QFont
 
-CATEGORY_ICONS = {
-    "All":                "★",
-    "Tools":              "🔧",
-    "Clicker Toys":       "🖱",
-    "Toys":               "🚗",
-    "Gaming & Tabletop":  "🎲",
-    "Cosplay & Props":    "⚔",
-    "Household":          "🏠",
-    "Art & Decor":        "🎨",
-    "Gadgets & Electronics": "💡",
-    "Utility":            "📦",
-    "Outdoors & Garden":  "🌿",
-    "Fashion & Jewelry":  "💎",
-    "3D Printer Parts":   "🖨",
-    "Education":          "📚",
-    "Repairs":            "🔩",
-    "Uncategorized":      "📁",
-}
-
-CATEGORY_COLORS = {
-    "All":                "#c6d4df",
-    "Tools":              "#e8873a",
-    "Clicker Toys":       "#b3a0d6",
-    "Toys":               "#66c0f4",
-    "Gaming & Tabletop":  "#9b7fd4",
-    "Cosplay & Props":    "#e05c99",
-    "Household":          "#5ba85a",
-    "Art & Decor":        "#e8c43a",
-    "Gadgets & Electronics": "#3ab8e8",
-    "Utility":            "#4a9e7a",
-    "Outdoors & Garden":  "#7ab85a",
-    "Fashion & Jewelry":  "#e87ab3",
-    "3D Printer Parts":   "#e87a3a",
-    "Education":          "#5a9be8",
-    "Repairs":            "#e05c5c",
-    "Uncategorized":      "#8f98a0",
-}
+import app.database as db
 
 
 class CategorySidebar(QWidget):
-    category_selected = Signal(str)
+    # Emits (parent_category, subcategory) — subcategory is "" for parent-level clicks
+    category_selected = Signal(str, str)
 
     def __init__(self):
         super().__init__()
-        self.setFixedWidth(180)
+        self.setMinimumWidth(170)
+        self.setMaximumWidth(240)
         self.setStyleSheet("background: #171d25;")
 
         layout = QVBoxLayout(self)
@@ -55,123 +21,172 @@ class CategorySidebar(QWidget):
 
         header = QLabel("LIBRARY")
         header.setStyleSheet("""
-            color: #8f98a0;
+            color: #546a7b;
             font-size: 10px;
             font-weight: bold;
-            padding: 14px 16px 8px 16px;
+            padding: 14px 16px 6px 16px;
             letter-spacing: 1px;
         """)
         layout.addWidget(header)
 
-        self.list = QListWidget()
-        self.list.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.list.setStyleSheet("""
-            QListWidget {
+        self.tree = QTreeWidget()
+        self.tree.setHeaderHidden(True)
+        self.tree.setIndentation(16)
+        self.tree.setAnimated(True)
+        self.tree.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.tree.setStyleSheet("""
+            QTreeWidget {
                 background: transparent;
                 border: none;
                 outline: none;
                 padding: 0;
-            }
-            QListWidget::item {
-                color: #8f98a0;
-                padding: 8px 16px;
-                border-radius: 0px;
                 font-size: 13px;
             }
-            QListWidget::item:hover {
+            QTreeWidget::item {
+                color: #8f98a0;
+                padding: 6px 8px 6px 4px;
+                border-radius: 0;
+            }
+            QTreeWidget::item:hover {
                 background: #1e2a38;
                 color: #c6d4df;
             }
-            QListWidget::item:selected {
+            QTreeWidget::item:selected {
                 background: #2a475e;
                 color: #ffffff;
                 border-left: 3px solid #66c0f4;
             }
-            QScrollBar:vertical {
+            QTreeWidget::branch {
                 background: transparent;
-                width: 5px;
-                margin: 0;
+            }
+            QTreeWidget::branch:has-children:!has-siblings:closed,
+            QTreeWidget::branch:closed:has-children:has-siblings {
+                image: none;
+                border-image: none;
+            }
+            QScrollBar:vertical {
+                background: transparent; width: 5px; margin: 0;
             }
             QScrollBar::handle:vertical {
-                background: #3a5a7a;
-                border-radius: 2px;
-                min-height: 24px;
+                background: #3a5a7a; border-radius: 2px; min-height: 24px;
             }
             QScrollBar::handle:vertical:hover { background: #66c0f4; }
-            QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical { height: 0; border: none; }
-            QScrollBar::add-page:vertical,
-            QScrollBar::sub-page:vertical { background: transparent; }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
         """)
-        self.list.itemClicked.connect(self._on_item_clicked)
-        layout.addWidget(self.list)
+        self.tree.itemClicked.connect(self._on_item_clicked)
+        layout.addWidget(self.tree)
 
-        self._categories = []
-        self._populate([], 0)
+        self._current: tuple[str, str] = ("All", "")
+        self._build_tree()
 
-    def _populate(self, categories: list, total: int):
-        self.list.clear()
+    # ── Public API ────────────────────────────────────────────────────────────
 
-        all_item = QListWidgetItem(f"  {CATEGORY_ICONS.get('All', '★')}  All  ({total})")
-        all_item.setData(Qt.UserRole, "All")
-        self.list.addItem(all_item)
+    def update_tree(self):
+        """Rebuild the tree from the database (call after scan/change)."""
+        cat, sub = self._current
+        self._build_tree()
+        self._restore_selection(cat, sub)
 
-        # Add separator spacer
-        sep = QListWidgetItem("")
+    def current_selection(self) -> tuple[str, str]:
+        return self._current
+
+    # ── Internal ──────────────────────────────────────────────────────────────
+
+    def _build_tree(self):
+        self.tree.blockSignals(True)
+        self.tree.clear()
+
+        total = len(db.get_all_files())
+
+        # "All" row
+        all_item = QTreeWidgetItem(["  ★  All"])
+        all_item.setData(0, Qt.UserRole, ("All", ""))
+        all_item.setForeground(0, QColor("#c6d4df"))
+        f = all_item.font(0)
+        f.setBold(True)
+        all_item.setFont(0, f)
+        self._set_count(all_item, total)
+        self.tree.addTopLevelItem(all_item)
+
+        # Separator label
+        sep = QTreeWidgetItem(["  CATEGORIES"])
         sep.setFlags(Qt.NoItemFlags)
-        sep.setSizeHint(QSize(0, 6))
-        self.list.addItem(sep)
+        sep.setForeground(0, QColor("#546a7b"))
+        sf = sep.font(0)
+        sf.setPointSize(8)
+        sep.setFont(0, sf)
+        self.tree.addTopLevelItem(sep)
 
-        label_item = QListWidgetItem("  CATEGORIES")
-        label_item.setFlags(Qt.NoItemFlags)
-        font = label_item.font()
-        font.setPointSize(8)
-        label_item.setFont(font)
-        label_item.setForeground(QColor("#546a7b"))
-        self.list.addItem(label_item)
+        tree_data = db.get_category_tree()
+        for cat in tree_data:
+            p_item = self._make_item(
+                label=f"  {cat['icon']}  {cat['name']}",
+                data=(cat["name"], ""),
+                color=cat["color"],
+                count=cat["count"],
+                bold=True,
+            )
+            for sub in cat["subcategories"]:
+                if sub["count"] == 0:
+                    continue   # hide empty subcategories to keep list tidy
+                s_item = self._make_item(
+                    label=f"  {sub['icon']}  {sub['name']}",
+                    data=(cat["name"], sub["name"]),
+                    color=sub["color"],
+                    count=sub["count"],
+                    bold=False,
+                )
+                p_item.addChild(s_item)
 
-        ordered = [
-            "Tools", "Clicker Toys", "Toys", "Gaming & Tabletop",
-            "Cosplay & Props", "Household", "Art & Decor",
-            "Gadgets & Electronics", "Utility", "Outdoors & Garden",
-            "Fashion & Jewelry", "3D Printer Parts", "Education",
-            "Repairs", "Uncategorized",
-        ]
-        cat_counts = {c["category"]: c["count"] for c in categories}
+            self.tree.addTopLevelItem(p_item)
+            if cat["count"] > 0:
+                p_item.setExpanded(False)   # collapsed by default; user opens
 
-        for cat in ordered:
-            count = cat_counts.get(cat, 0)
-            icon = CATEGORY_ICONS.get(cat, "📁")
-            item = QListWidgetItem(f"  {icon}  {cat}  ({count})")
-            item.setData(Qt.UserRole, cat)
-            color = CATEGORY_COLORS.get(cat, "#8f98a0")
-            item.setForeground(QColor(color if count > 0 else "#4a5a6a"))
-            self.list.addItem(item)
+        self.tree.blockSignals(False)
 
-        # Select "All" by default
-        if self.list.count() > 0:
-            self.list.setCurrentRow(0)
+    def _make_item(self, label: str, data: tuple, color: str,
+                   count: int, bold: bool) -> QTreeWidgetItem:
+        item = QTreeWidgetItem([label])
+        item.setData(0, Qt.UserRole, data)
+        item.setForeground(0, QColor(color if count > 0 else "#4a5a6a"))
+        f = item.font(0)
+        f.setBold(bold)
+        item.setFont(0, f)
+        self._set_count(item, count)
+        return item
 
-    def update_categories(self, categories: list, total: int):
-        current = self.current_category()
-        self._populate(categories, total)
-        # Restore selection
-        for i in range(self.list.count()):
-            item = self.list.item(i)
-            if item and item.data(Qt.UserRole) == current:
-                self.list.setCurrentItem(item)
-                break
+    @staticmethod
+    def _set_count(item: QTreeWidgetItem, count: int):
+        item.setData(0, Qt.UserRole + 1, count)
+        # Append count to the label text
+        current = item.text(0).rstrip()
+        # Strip old count if present
+        import re
+        current = re.sub(r"\s+\(\d+\)\s*$", "", current)
+        item.setText(0, f"{current}  ({count})")
 
-    def _on_item_clicked(self, item: QListWidgetItem):
-        cat = item.data(Qt.UserRole)
-        if cat:
-            self.category_selected.emit(cat)
+    def _on_item_clicked(self, item: QTreeWidgetItem, _col: int):
+        data = item.data(0, Qt.UserRole)
+        if not data:
+            return
+        cat, sub = data
+        self._current = (cat, sub)
+        self.category_selected.emit(cat, sub)
 
-    def current_category(self) -> str:
-        item = self.list.currentItem()
-        if item:
-            cat = item.data(Qt.UserRole)
-            if cat:
-                return cat
-        return "All"
+    def _restore_selection(self, cat: str, sub: str):
+        for i in range(self.tree.topLevelItemCount()):
+            top = self.tree.topLevelItem(i)
+            d = top.data(0, Qt.UserRole)
+            if d and d[0] == cat and d[1] == sub:
+                self.tree.setCurrentItem(top)
+                return
+            for j in range(top.childCount()):
+                child = top.child(j)
+                d = child.data(0, Qt.UserRole)
+                if d and d[0] == cat and d[1] == sub:
+                    self.tree.setCurrentItem(child)
+                    return
+        # fallback: select All
+        self.tree.setCurrentItem(self.tree.topLevelItem(0))
