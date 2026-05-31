@@ -294,6 +294,16 @@ class MainWindow(QMainWindow):
     # ── Initial setup ─────────────────────────────────────────────────────────
 
     def _check_initial_setup(self):
+        # Auto-detect slicers silently on first launch
+        if not db.get_configured_slicers():
+            from app.slicer import detect_slicers
+            found = detect_slicers()
+            if found:
+                slicers = [{"name": n, "path": p} for n, p in found.items()]
+                db.save_slicers(slicers)
+                names = ", ".join(found.keys())
+                self.status_label.setText(f"Auto-detected: {names}")
+
         if not db.get_watch_folders():
             msg = QMessageBox(self)
             msg.setWindowTitle("Welcome to 3D Print Library")

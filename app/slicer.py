@@ -5,35 +5,129 @@ import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-KNOWN_SLICERS = {
-    "OrcaSlicer": [
-        r"C:\Program Files\OrcaSlicer\OrcaSlicer.exe",
-        r"C:\Program Files (x86)\OrcaSlicer\OrcaSlicer.exe",
-        r"C:\Users\{user}\AppData\Local\OrcaSlicer\OrcaSlicer.exe",
-    ],
-    "Bambu Studio": [
-        r"C:\Program Files\Bambu Studio\bambu-studio.exe",
-        r"C:\Program Files (x86)\Bambu Studio\bambu-studio.exe",
-    ],
-    "Snapmaker Luban": [
-        r"C:\Program Files\Snapmaker Luban\Snapmaker Luban.exe",
-        r"C:\Program Files (x86)\Snapmaker Luban\Snapmaker Luban.exe",
-    ],
-    "PrusaSlicer": [
-        r"C:\Program Files\PrusaSlicer\prusa-slicer.exe",
-        r"C:\Program Files (x86)\PrusaSlicer\prusa-slicer.exe",
-    ],
-    "UltiMaker Cura": [
-        r"C:\Program Files\UltiMaker Cura\UltiMaker-Cura.exe",
-        r"C:\Program Files\Ultimaker Cura\UltiMaker-Cura.exe",
-    ],
-    "Creality Print": [
-        r"C:\Program Files\Creality Print\Creality Print.exe",
-        r"C:\Program Files (x86)\Creality Print\Creality Print.exe",
-    ],
-    "Chitubox": [
-        r"C:\Program Files\CBD-Tech\CHITUBOX\CHITUBOX.exe",
-    ],
+# ── Slicer profiles ───────────────────────────────────────────────────────────
+# Each entry: display name → dict with
+#   exe       : the executable filename(s) to look for inside an install folder
+#   reg_names : substrings to match against registry DisplayName values
+#   hints     : extra hardcoded candidate paths (use {pf}, {pf86}, {local},
+#               {roaming}, {user} as placeholders resolved at runtime)
+
+SLICER_PROFILES: dict[str, dict] = {
+    "OrcaSlicer": {
+        "exe": ["OrcaSlicer.exe"],
+        "reg_names": ["OrcaSlicer", "Orca Slicer"],
+        "hints": [
+            r"{pf}\OrcaSlicer\OrcaSlicer.exe",
+            r"{pf86}\OrcaSlicer\OrcaSlicer.exe",
+            r"{local}\OrcaSlicer\OrcaSlicer.exe",
+            r"{local}\Programs\OrcaSlicer\OrcaSlicer.exe",
+        ],
+    },
+    "Bambu Studio": {
+        "exe": ["bambu-studio.exe", "BambuStudio.exe"],
+        "reg_names": ["Bambu Studio", "BambuStudio"],
+        "hints": [
+            r"{pf}\Bambu Studio\bambu-studio.exe",
+            r"{pf86}\Bambu Studio\bambu-studio.exe",
+            r"{local}\Bambu Studio\bambu-studio.exe",
+            r"{local}\Programs\Bambu Studio\bambu-studio.exe",
+        ],
+    },
+    "PrusaSlicer": {
+        "exe": ["prusa-slicer.exe", "PrusaSlicer.exe"],
+        "reg_names": ["PrusaSlicer", "Prusa Slicer"],
+        "hints": [
+            r"{pf}\PrusaSlicer\prusa-slicer.exe",
+            r"{pf86}\PrusaSlicer\prusa-slicer.exe",
+            r"{local}\PrusaSlicer\prusa-slicer.exe",
+        ],
+    },
+    "UltiMaker Cura": {
+        "exe": ["UltiMaker-Cura.exe", "Cura.exe"],
+        "reg_names": ["UltiMaker Cura", "Ultimaker Cura", "Cura"],
+        "hints": [
+            r"{pf}\UltiMaker Cura\UltiMaker-Cura.exe",
+            r"{pf}\Ultimaker Cura\UltiMaker-Cura.exe",
+            r"{pf86}\UltiMaker Cura\UltiMaker-Cura.exe",
+            r"{local}\Programs\Cura\UltiMaker-Cura.exe",
+        ],
+    },
+    "Snapmaker Luban": {
+        "exe": ["Snapmaker Luban.exe", "snapmaker-luban.exe"],
+        "reg_names": ["Snapmaker Luban", "Luban"],
+        "hints": [
+            r"{pf}\Snapmaker Luban\Snapmaker Luban.exe",
+            r"{pf86}\Snapmaker Luban\Snapmaker Luban.exe",
+            r"{local}\Programs\Snapmaker Luban\Snapmaker Luban.exe",
+        ],
+    },
+    "Creality Print": {
+        "exe": ["Creality Print.exe", "CrealityPrint.exe"],
+        "reg_names": ["Creality Print"],
+        "hints": [
+            r"{pf}\Creality Print\Creality Print.exe",
+            r"{pf86}\Creality Print\Creality Print.exe",
+            r"{local}\Creality Print\Creality Print.exe",
+        ],
+    },
+    "Chitubox": {
+        "exe": ["CHITUBOX.exe"],
+        "reg_names": ["CHITUBOX", "Chitubox"],
+        "hints": [
+            r"{pf}\CBD-Tech\CHITUBOX\CHITUBOX.exe",
+            r"{pf86}\CBD-Tech\CHITUBOX\CHITUBOX.exe",
+            r"{local}\Programs\CHITUBOX\CHITUBOX.exe",
+        ],
+    },
+    "Lychee Slicer": {
+        "exe": ["Lychee Slicer.exe", "lychee-slicer.exe"],
+        "reg_names": ["Lychee Slicer", "LycheeSlicer"],
+        "hints": [
+            r"{pf}\Lychee Slicer\Lychee Slicer.exe",
+            r"{local}\Programs\Lychee Slicer\Lychee Slicer.exe",
+        ],
+    },
+    "FlashPrint": {
+        "exe": ["FlashPrint.exe"],
+        "reg_names": ["FlashPrint", "Flash Print"],
+        "hints": [
+            r"{pf}\FlashForge\FlashPrint\FlashPrint.exe",
+            r"{pf86}\FlashForge\FlashPrint\FlashPrint.exe",
+            r"{pf}\FlashPrint\FlashPrint.exe",
+        ],
+    },
+    "Anycubic Photon Workshop": {
+        "exe": ["PhotonWorkshop.exe", "Photon Workshop.exe"],
+        "reg_names": ["Photon Workshop", "AnycubicPhotonWorkshop"],
+        "hints": [
+            r"{pf}\Anycubic\Photon Workshop\PhotonWorkshop.exe",
+            r"{pf86}\Anycubic\Photon Workshop\PhotonWorkshop.exe",
+        ],
+    },
+    "ideaMaker": {
+        "exe": ["ideaMaker.exe"],
+        "reg_names": ["ideaMaker", "IdeaMaker"],
+        "hints": [
+            r"{pf}\Raise3D\ideaMaker\ideaMaker.exe",
+            r"{pf86}\Raise3D\ideaMaker\ideaMaker.exe",
+        ],
+    },
+    "Simplify3D": {
+        "exe": ["Simplify3D.exe"],
+        "reg_names": ["Simplify3D"],
+        "hints": [
+            r"{pf}\Simplify3D\Simplify3D.exe",
+            r"{pf86}\Simplify3D\Simplify3D.exe",
+        ],
+    },
+    "SuperSlicer": {
+        "exe": ["superslicer.exe", "SuperSlicer.exe"],
+        "reg_names": ["SuperSlicer", "Super Slicer"],
+        "hints": [
+            r"{pf}\SuperSlicer\superslicer.exe",
+            r"{local}\SuperSlicer\superslicer.exe",
+        ],
+    },
 }
 
 # ── Settings files to STRIP when doing an import ──────────────────────────────
@@ -222,14 +316,144 @@ def open_in_slicer(
 
 
 def detect_slicers() -> dict[str, str]:
-    """Auto-detect installed slicers. Returns {name: path}."""
+    """
+    Auto-detect installed slicers using three strategies, tried in order:
+
+    1. Windows Registry — reads HKLM and HKCU Uninstall keys to find the
+       InstallLocation of any registered application whose DisplayName matches
+       a known slicer.  Most reliable: works regardless of where the user chose
+       to install.
+
+    2. Hardcoded path hints — checks the common default install directories for
+       each slicer (Program Files, Program Files (x86), AppData\\Local …).
+
+    3. Common drive roots — scans C:\\ and D:\\ top-level folders for any
+       directory whose name matches a slicer, then looks for the expected .exe
+       inside.  Catches portable / custom installs.
+
+    Returns {display_name: absolute_exe_path} for every slicer found.
+    """
     import os
-    username = os.environ.get("USERNAME", "")
-    found = {}
-    for name, paths in KNOWN_SLICERS.items():
-        for p in paths:
-            resolved = p.replace("{user}", username)
-            if Path(resolved).exists():
-                found[name] = resolved
+
+    found: dict[str, str] = {}
+
+    # ── Resolve environment-variable placeholders ──────────────────────────
+    pf     = os.environ.get("ProgramFiles",         r"C:\Program Files")
+    pf86   = os.environ.get("ProgramFiles(x86)",    r"C:\Program Files (x86)")
+    local  = os.environ.get("LOCALAPPDATA",         "")
+    roaming = os.environ.get("APPDATA",             "")
+    user   = os.environ.get("USERPROFILE",          "")
+
+    def _resolve(p: str) -> str:
+        return (p.replace("{pf}",     pf)
+                  .replace("{pf86}",  pf86)
+                  .replace("{local}", local)
+                  .replace("{roaming}", roaming)
+                  .replace("{user}",  user))
+
+    # ── Strategy 1: Windows Registry ──────────────────────────────────────
+    try:
+        import winreg
+
+        reg_roots = [
+            (winreg.HKEY_LOCAL_MACHINE,
+             r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+            (winreg.HKEY_LOCAL_MACHINE,
+             r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
+            (winreg.HKEY_CURRENT_USER,
+             r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+        ]
+
+        def _read_str(key, value_name: str) -> str:
+            try:
+                return winreg.QueryValueEx(key, value_name)[0] or ""
+            except OSError:
+                return ""
+
+        for hive, subkey in reg_roots:
+            try:
+                root_key = winreg.OpenKey(hive, subkey)
+            except OSError:
+                continue
+
+            idx = 0
+            while True:
+                try:
+                    sub_name = winreg.EnumKey(root_key, idx)
+                    idx += 1
+                except OSError:
+                    break
+
+                try:
+                    sub_key = winreg.OpenKey(root_key, sub_name)
+                except OSError:
+                    continue
+
+                display_name  = _read_str(sub_key, "DisplayName")
+                install_loc   = _read_str(sub_key, "InstallLocation").strip().rstrip("\\")
+                install_loc2  = _read_str(sub_key, "InstallDir").strip().rstrip("\\")
+
+                for slicer_name, profile in SLICER_PROFILES.items():
+                    if slicer_name in found:
+                        continue
+                    # Check if registry DisplayName matches any of our keywords
+                    dn_lower = display_name.lower()
+                    if not any(kw.lower() in dn_lower for kw in profile["reg_names"]):
+                        continue
+
+                    # Try each known exe inside the install folder
+                    for folder in filter(None, [install_loc, install_loc2]):
+                        for exe in profile["exe"]:
+                            candidate = Path(folder) / exe
+                            if candidate.exists():
+                                found[slicer_name] = str(candidate)
+                                break
+                        if slicer_name in found:
+                            break
+
+                winreg.CloseKey(sub_key)
+
+            winreg.CloseKey(root_key)
+
+    except Exception:
+        pass  # winreg unavailable (non-Windows), skip
+
+    # ── Strategy 2: Hardcoded path hints ──────────────────────────────────
+    for slicer_name, profile in SLICER_PROFILES.items():
+        if slicer_name in found:
+            continue
+        for hint in profile.get("hints", []):
+            candidate = Path(_resolve(hint))
+            if candidate.exists():
+                found[slicer_name] = str(candidate)
                 break
+
+    # ── Strategy 3: Scan common drive roots ───────────────────────────────
+    # Check top-level dirs on C:\ and D:\ for folder names that look like
+    # a slicer, then see if the expected .exe is inside.
+    scan_roots = [Path("C:\\"), Path("D:\\")]
+    for slicer_name, profile in SLICER_PROFILES.items():
+        if slicer_name in found:
+            continue
+        for root in scan_roots:
+            if not root.exists():
+                continue
+            try:
+                for entry in root.iterdir():
+                    if not entry.is_dir():
+                        continue
+                    entry_lower = entry.name.lower()
+                    if not any(kw.lower() in entry_lower
+                               for kw in profile["reg_names"]):
+                        continue
+                    for exe in profile["exe"]:
+                        candidate = entry / exe
+                        if candidate.exists():
+                            found[slicer_name] = str(candidate)
+                            break
+                    if slicer_name in found:
+                        break
+            except PermissionError:
+                continue
+
     return found

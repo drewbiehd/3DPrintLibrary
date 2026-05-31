@@ -121,23 +121,30 @@ class SettingsDialog(QDialog):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(10)
 
-        layout.addWidget(QLabel("Configured slicers (name + executable path):"))
+        layout.addWidget(QLabel("Configured slicers:"))
 
         self.slicer_list = QListWidget()
+        self.slicer_list.setMinimumHeight(160)
         self._reload_slicer_list()
         layout.addWidget(self.slicer_list)
 
+        # Status label shown during / after auto-detect
+        self.detect_status = QLabel("")
+        self.detect_status.setStyleSheet("color: #8f98a0; font-size: 11px;")
+        self.detect_status.setWordWrap(True)
+        layout.addWidget(self.detect_status)
+
         btns = QHBoxLayout()
 
-        auto_btn = QPushButton("🔍 Auto-Detect")
-        auto_btn.clicked.connect(self._auto_detect)
-        btns.addWidget(auto_btn)
+        self.auto_btn = QPushButton("🔍  Auto-Detect Slicers")
+        self.auto_btn.clicked.connect(self._auto_detect)
+        btns.addWidget(self.auto_btn)
 
         add_btn = QPushButton("+ Add Manually")
         add_btn.clicked.connect(self._add_slicer)
         btns.addWidget(add_btn)
 
-        remove_btn = QPushButton("Remove Selected")
+        remove_btn = QPushButton("✕  Remove Selected")
         remove_btn.clicked.connect(self._remove_slicer)
         btns.addWidget(remove_btn)
 
@@ -145,40 +152,102 @@ class SettingsDialog(QDialog):
         layout.addLayout(btns)
 
         note = QLabel(
-            "Tip: The first slicer in the list is the default. "
-            "If you have multiple slicers, a submenu will appear when opening files."
+            "Auto-Detect searches the Windows Registry, Program Files, AppData, "
+            "and common drive roots — it finds slicers regardless of where they "
+            "were installed.\n\n"
+            "Tip: if you have multiple slicers a submenu appears when opening files."
         )
         note.setWordWrap(True)
         note.setStyleSheet("color: #8f98a0; font-size: 11px;")
         layout.addWidget(note)
+
+        # Run auto-detect automatically if nothing is configured yet
+        if not db.get_configured_slicers():
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(100, self._auto_detect_silent)
 
         return w
 
     def _reload_slicer_list(self):
         self.slicer_list.clear()
         for s in db.get_configured_slicers():
-            item = QListWidgetItem(f"{s['name']}  —  {s['path']}")
+            item = QListWidgetItem(f"  {s['name']}")
+            item.setToolTip(s["path"])
             item.setData(Qt.UserRole, s)
+            # Show exe path in a muted second line via accessible description
+            path_item = QListWidgetItem(f"      {s['path']}")
+            path_item.setFlags(Qt.NoItemFlags)
+            path_item.setForeground(Qt.GlobalColor.darkGray)
             self.slicer_list.addItem(item)
+            self.slicer_list.addItem(path_item)
 
-    def _auto_detect(self):
+    def _auto_detect_silent(self):
+        """Run detection quietly on first open — no dialog if nothing found."""
         found = detect_slicers()
         if not found:
-            QMessageBox.information(self, "Auto-Detect", "No known slicers found in default locations.")
+            self.detect_status.setText(
+                "No slicers found automatically.  Use '+ Add Manually' to browse for your slicer."
+            )
             return
-        current = {s["path"] for s in db.get_configured_slicers()}
-        added = []
+        self._apply_detected(found, silent=True)
+
+    def _auto_detect(self):
+        """Manual auto-detect triggered by button — always shows a result message."""
+        self.auto_btn.setEnabled(False)
+        self.auto_btn.setText("🔍  Detecting…")
+        from PySide6.QtWidgets import QApplication
+        QApplication.processEvents()
+
+        found = detect_slicers()
+
+        self.auto_btn.setEnabled(True)
+        self.auto_btn.setText("🔍  Auto-Detect Slicers")
+
+        if not found:
+            self.detect_status.setText("✗  No slicers found in any standard location.")
+            QMessageBox.information(
+                self, "Auto-Detect",
+                "No slicers were found automatically.\n\n"
+                "Use '+ Add Manually' to browse to your slicer's .exe file."
+            )
+            return
+
+        self._apply_detected(found, silent=False)
+
+    def _apply_detected(self, found: dict, silent: bool):
+        current_paths = {s["path"] for s in db.get_configured_slicers()}
         slicers = db.get_configured_slicers()
+        added = []
+        already = []
+
         for name, path in found.items():
-            if path not in current:
+            if path not in current_paths:
                 slicers.append({"name": name, "path": path})
-                added.append(name)
+                added.append((name, path))
+            else:
+                already.append(name)
+
         db.save_slicers(slicers)
         self._reload_slicer_list()
+
         if added:
-            QMessageBox.information(self, "Auto-Detect", f"Found and added:\n" + "\n".join(added))
+            names_str = ",  ".join(n for n, _ in added)
+            self.detect_status.setText(f"✓  Found: {names_str}")
+            if not silent:
+                detail = "\n".join(f"  {n}\n    {p}" for n, p in added)
+                QMessageBox.information(
+                    self, "Auto-Detect — Slicers Found",
+                    f"Detected and added {len(added)} slicer(s):\n\n{detail}"
+                )
         else:
-            QMessageBox.information(self, "Auto-Detect", "All detected slicers are already configured.")
+            self.detect_status.setText(
+                "✓  All detected slicers are already configured."
+            )
+            if not silent:
+                QMessageBox.information(
+                    self, "Auto-Detect",
+                    "All detected slicers are already in your list."
+                )
 
     def _add_slicer(self):
         name, ok = QInputDialog.getText(self, "Add Slicer", "Slicer name (e.g. OrcaSlicer):")
