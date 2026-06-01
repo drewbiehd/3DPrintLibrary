@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QTreeWidget, QTreeWidgetItem
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QTreeWidget, QTreeWidgetItem, QHeaderView
 from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QColor, QFont
 
@@ -34,7 +34,10 @@ class CategorySidebar(QWidget):
         self.tree.setIndentation(16)
         self.tree.setAnimated(True)
         self.tree.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.tree.setTextElideMode(Qt.ElideNone)
+        self.tree.header().setStretchLastSection(False)
+        self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.tree.setStyleSheet("""
             QTreeWidget {
                 background: transparent;
@@ -62,8 +65,13 @@ class CategorySidebar(QWidget):
             }
             QTreeWidget::branch:has-children:!has-siblings:closed,
             QTreeWidget::branch:closed:has-children:has-siblings {
-                image: none;
-                border-image: none;
+                padding-left: 4px;
+                color: #546a7b;
+            }
+            QTreeWidget::branch:open:has-children:!has-siblings,
+            QTreeWidget::branch:open:has-children:has-siblings {
+                padding-left: 4px;
+                color: #546a7b;
             }
             QScrollBar:vertical {
                 background: transparent; width: 5px; margin: 0;
@@ -74,6 +82,15 @@ class CategorySidebar(QWidget):
             QScrollBar::handle:vertical:hover { background: #66c0f4; }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
             QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
+            QScrollBar:horizontal {
+                background: transparent; height: 5px; margin: 0;
+            }
+            QScrollBar::handle:horizontal {
+                background: #3a5a7a; border-radius: 2px; min-width: 24px;
+            }
+            QScrollBar::handle:horizontal:hover { background: #66c0f4; }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: transparent; }
         """)
         self.tree.itemClicked.connect(self._on_item_clicked)
         layout.addWidget(self.tree)
@@ -121,8 +138,10 @@ class CategorySidebar(QWidget):
 
         tree_data = db.get_category_tree()
         for cat in tree_data:
+            has_subs = any(s["count"] > 0 for s in cat["subcategories"])
+            prefix = "▾ " if has_subs else "  "
             p_item = self._make_item(
-                label=f"  {cat['icon']}  {cat['name']}",
+                label=f"  {prefix}{cat['icon']}  {cat['name']}",
                 data=(cat["name"], ""),
                 color=cat["color"],
                 count=cat["count"],
@@ -141,8 +160,7 @@ class CategorySidebar(QWidget):
                 p_item.addChild(s_item)
 
             self.tree.addTopLevelItem(p_item)
-            if cat["count"] > 0:
-                p_item.setExpanded(False)   # collapsed by default; user opens
+            # Collapsed by default — user clicks arrow to expand subs
 
         self.tree.blockSignals(False)
 
