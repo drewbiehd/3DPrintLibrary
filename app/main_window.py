@@ -84,7 +84,7 @@ class MainWindow(QMainWindow):
         self.resize(1440, 900)
         self._scan_worker = None
         self._setup_ui()
-        self._load_library()
+        self._load_library(refresh_sidebar=True)
         QTimer.singleShot(200, self._check_initial_setup)
 
     # ── UI setup ──────────────────────────────────────────────────────────────
@@ -189,7 +189,7 @@ class MainWindow(QMainWindow):
         self.grid.refresh_requested.connect(self._load_library)
         splitter.addWidget(self.grid)
 
-        splitter.setSizes([180, 1200])
+        splitter.setSizes([230, 1200])
         splitter.setStretchFactor(1, 1)
         layout.addWidget(splitter)
 
@@ -219,7 +219,7 @@ class MainWindow(QMainWindow):
 
     # ── Library loading ───────────────────────────────────────────────────────
 
-    def _load_library(self):
+    def _load_library(self, refresh_sidebar: bool = False):
         cat, sub = self.sidebar.current_selection()
         search = self.search_box.text().strip() or None
         files = db.get_all_files(
@@ -229,7 +229,11 @@ class MainWindow(QMainWindow):
         )
         files = self._sort_files(files, self.sort_combo.currentIndex())
         self.grid.load_files(files)
-        self.sidebar.update_tree()
+
+        # Only rebuild the sidebar tree when categories/counts actually change
+        # (after a scan or settings update) — not on every category click
+        if refresh_sidebar:
+            self.sidebar.update_tree()
 
         total = len(db.get_all_files())
         self.file_count_label.setText(f"{len(files)} shown  /  {total} total")
@@ -284,7 +288,7 @@ class MainWindow(QMainWindow):
 
     def _on_scan_finished(self, count: int):
         removed = db.remove_missing_files()
-        self._load_library()
+        self._load_library(refresh_sidebar=True)
         self.scan_action.setEnabled(True)
         self.scan_btn_status.hide()
         msg = f"Scan complete — {count} files found"
@@ -300,7 +304,7 @@ class MainWindow(QMainWindow):
     def _open_settings(self):
         dlg = SettingsDialog(self)
         if dlg.exec():
-            self._load_library()
+            self._load_library(refresh_sidebar=True)
 
     # ── Initial setup ─────────────────────────────────────────────────────────
 
