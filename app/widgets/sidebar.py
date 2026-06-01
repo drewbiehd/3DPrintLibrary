@@ -38,6 +38,7 @@ class CategorySidebar(QWidget):
         self.tree.setTextElideMode(Qt.ElideNone)
         self.tree.header().setStretchLastSection(False)
         self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.tree.setExpandsOnDoubleClick(False)
         self.tree.setStyleSheet("""
             QTreeWidget {
                 background: transparent;
@@ -189,6 +190,10 @@ class CategorySidebar(QWidget):
         data = item.data(0, Qt.UserRole)
         if not data:
             return
+        # A single click on a parent row toggles its subcategories,
+        # so the whole row (not just the tiny arrow) is the hit target.
+        if item.childCount() > 0:
+            item.setExpanded(not item.isExpanded())
         cat, sub = data
         self._current = (cat, sub)
         self.category_selected.emit(cat, sub)
