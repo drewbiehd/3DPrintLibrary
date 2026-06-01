@@ -131,44 +131,50 @@ SLICER_PROFILES: dict[str, dict] = {
 }
 
 # ── Settings files to STRIP when doing an import ──────────────────────────────
-# These contain printer / filament / process profiles that override slicer
-# settings when the file is "opened as project".  Everything else — especially
-# 3D/3dmodel.model (geometry + all paint_color / face_property triangle
-# attributes) and model_settings.config (per-object extruder slot assignments)
-# — is kept intact so colors and multi-material structure survive the import.
+# We use a KEEP-LIST approach instead of a blocklist of exact names, because
+# slicer forks (Snapmaker Orca, Bambu Studio, PrusaSlicer, SuperSlicer …) all
+# name their profile bundles slightly differently and add new ones over time.
+#
+# Rule: inside Metadata/, drop EVERY *.config file EXCEPT the handful that hold
+# model structure (object/extruder/color assignments). That guarantees no
+# printer / filament / process profile survives, no matter what a fork calls it,
+# while the geometry + painted-color data (which lives in 3D/*.model and
+# model_settings.config) is preserved.
 
-# Exact filenames to drop (Bambu/Orca and PrusaSlicer variants)
+# The ONLY .config files we keep — these describe the model, not the printer.
+_KEEP_CONFIG_BASENAMES: set[str] = {
+    "model_settings.config",        # per-object extruder slots, modifier flags
+    "Slic3r_PE_model.config",       # PrusaSlicer equivalent of the above
+    "cut_information.config",        # cut/connector geometry (model data)
+}
+
+# File extensions to always drop (compiled G-code — large and useless here)
+_STRIP_SUFFIXES: tuple[str, ...] = (".gcode", ".gcode.md5")
+
+# Non-.config settings artefacts to drop by exact name.
 _STRIP_EXACT: set[str] = {
-    "Metadata/project_settings.config",   # Bambu / Orca — master profile bundle
-    "Metadata/print_profile.config",       # OrcaSlicer alternate name
-    "Metadata/slice_info.config",          # last-slice metadata, not needed
-    "Metadata/Slic3r_PE.config",           # PrusaSlicer / SuperSlicer profiles
     "Metadata/layer_heights_profile.txt",  # adaptive layer heights
     "Metadata/layer_config_ranges.xml",    # per-layer config overrides
     "Metadata/filament_sequence.json",     # filament usage order
 }
 
-# Filename prefixes to drop (numbered per-plate / per-material configs)
-_STRIP_PREFIXES: tuple[str, ...] = (
-    "Metadata/filament_settings_",   # filament_settings_0.config …
-    "Metadata/machine_settings_",    # machine_settings_0.config …
-    "Metadata/process_settings_",    # process_settings_0.config …
-)
-
-# File extensions to always drop (compiled G-code — large and useless here)
-_STRIP_SUFFIXES: tuple[str, ...] = (".gcode",)
-
 
 def _should_strip(filename: str) -> bool:
     """Return True if this ZIP entry should be omitted from an import copy."""
-    if filename in _STRIP_EXACT:
+    norm = filename.replace("\\", "/")
+    base = norm.rsplit("/", 1)[-1]
+
+    if norm in _STRIP_EXACT:
         return True
-    for prefix in _STRIP_PREFIXES:
-        if filename.startswith(prefix):
-            return True
+
     for suffix in _STRIP_SUFFIXES:
-        if filename.endswith(suffix):
+        if norm.endswith(suffix):
             return True
+
+    # Any .config file is a settings bundle UNLESS it's an explicit keeper.
+    if base.endswith(".config") and base not in _KEEP_CONFIG_BASENAMES:
+        return True
+
     return False
 
 
